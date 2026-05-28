@@ -69,8 +69,6 @@ I don't have a massive test suite yet, but if i do come back to it, you can run 
 cargo test
 ```
 
-You can also test custom logic by editing the `program_instructions` vectors in `main.rs` and observing the stack/storage logs.
-
 ## Steps to Contribute
 
 Contributions are more than welcome, I'm still working on the opcode set though, so... keep that in mind or something.
