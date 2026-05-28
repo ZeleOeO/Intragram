@@ -37,12 +37,17 @@ impl ThreadPool {
         }
     }
 
-    pub fn execute<F>(&self, f: F)
+    pub fn execute<F>(&self, f: F) -> Result<(), ()>
     where
         F: FnOnce() + Send + 'static,
     {
         let job = Box::new(f);
-        self.sender.as_ref().unwrap().send(job).unwrap();
+        self.sender
+            .as_ref()
+            .unwrap()
+            .send(job)
+            .map_err(|err| eprintln!("Error executing thread pool {err:?}"))?;
+        Ok(())
     }
 }
 
