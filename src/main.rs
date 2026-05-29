@@ -12,7 +12,7 @@ use std::{
 
 use intragram::ThreadPool;
 
-const ADDR: &str = "127.0.0.1:6821";
+const ADDR: &str = "0.0.0.0:6821";
 const MSG: usize = 64;
 const RATE_LIMIT: Duration = Duration::from_secs(2);
 
