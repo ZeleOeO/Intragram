@@ -14,6 +14,7 @@ use intragram::ThreadPool;
 
 const ADDR: &str = "127.0.0.1:6821";
 const MSG: usize = 64;
+const RATE_LIMIT: Duration = Duration::from_secs(2);
 
 enum Message {
     ClientConnected(Arc<TcpStream>),
@@ -21,6 +22,7 @@ enum Message {
     NewMessage(SocketAddr, Vec<u8>),
 }
 
+#[derive(Debug)]
 struct Client {
     connection: Arc<TcpStream>,
     last_message: Instant,
@@ -42,12 +44,13 @@ fn handle_clients(stream: Arc<TcpStream>, sender: Sender<Message>) -> Result<(),
                     sender
                         .send(Message::ClientDisconnected(socket_addr))
                         .map_err(|e| eprintln!("Error disconnecting Client: {e:#?}"))?;
+                    break;
                 }
             }
             Ok(n) => {
                 let msg = buff[0..n].to_vec();
-                let response =
-                    String::from_utf8(msg.clone()).expect("Error converting msg to String");
+                let response = String::from_utf8(msg.clone())
+                    .map_err(|e| eprintln!("Error reading Client: {e:#?}"))?;
                 println!("Response is {response:?}");
 
                 if let Ok(socket_addr) = stream.peer_addr() {
@@ -97,7 +100,19 @@ fn server(receiver: Receiver<Message>) -> Result<(), ()> {
             }
 
             Message::ClientDisconnected(socket_addr) => {
+                println!("DISCONNECT received for: {}", socket_addr);
                 clients.remove(&socket_addr);
+
+                for (recipients_addr, client) in clients.iter() {
+                    println!("Sending disconnect notification to: {}", recipients_addr);
+                    if *recipients_addr != socket_addr {
+                        let _ = client
+                            .connection
+                            .as_ref()
+                            .write(format!("Address {socket_addr} Disconnected \n").as_bytes())
+                            .map_err(|err| eprintln!("Error writing to recipients: {err}"));
+                    }
+                }
             }
 
             Message::NewMessage(socket_addr, client_stream) => {
@@ -107,9 +122,11 @@ fn server(receiver: Receiver<Message>) -> Result<(), ()> {
                     let time_since_last_message =
                         Instant::now().duration_since(client.last_message);
 
-                    if time_since_last_message < Duration::from_secs(2) {
+                    if time_since_last_message < RATE_LIMIT {
+                        eprintln!("Client {client:#?} has to wait to send");
                         should_send = false;
                     }
+                    client.last_message = Instant::now();
                 } else {
                     eprintln!("ERROR Client is not in our clients list, weird");
                     should_send = false;
@@ -117,11 +134,12 @@ fn server(receiver: Receiver<Message>) -> Result<(), ()> {
 
                 if should_send {
                     for (recipients_addr, client) in clients.iter() {
+                        let message = String::from_utf8(client_stream.clone()).unwrap();
                         if *recipients_addr != socket_addr {
                             let _ = client
                                 .connection
                                 .as_ref()
-                                .write(&client_stream)
+                                .write(&format!("Address: {socket_addr} - {message}").as_bytes())
                                 .map_err(|err| eprintln!("Error writing to stuff: {err}"));
                         }
                     }
@@ -138,7 +156,7 @@ fn main() -> Result<(), ()> {
 
     println!("Listening on Server {ADDR}");
 
-    let mut clients: Vec<_> = vec![];
+    // let mut clients: Vec<_> = vec![];
 
     let (sender, reciever) = mpsc::channel::<Message>();
     let pool = ThreadPool::new(10);
@@ -149,7 +167,7 @@ fn main() -> Result<(), ()> {
         match stream {
             Ok(streams) => {
                 println!("Connection Established");
-                clients.push(streams.try_clone().expect("Error cloning client"));
+                // clients.push(streams.try_clone().expect("Error cloning stream"));
                 let sender_clone = sender.clone();
                 let new_stream = Arc::new(streams);
                 pool.execute(|| {
